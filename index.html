@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pyramid Equations</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 0; padding: 0; }
+    #start-screen, #success-message, #fail-message {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8); display: flex; align-items: center;
+      justify-content: center; color: #fff; flex-direction: column; z-index: 999;
+    }
+    #start-screen button, #success-message button, #fail-message button {
+      padding: 10px 20px; font-size: 18px; margin-top: 20px; cursor: pointer;
+    }
+    #board { display: inline-block; margin-top: 20px; }
+    .pyramid { display: grid; grid-gap: 10px; margin: 0 auto; }
+    .row-1 { grid-template-columns: repeat(1, 60px); }
+    .row-2 { grid-template-columns: repeat(2, 60px); }
+    .row-3 { grid-template-columns: repeat(3, 60px); }
+    .row-4 { grid-template-columns: repeat(4, 60px); }
+    .tile { width: 60px; height: 60px; line-height: 60px;
+             border: 1px solid #333; cursor: pointer;
+             user-select: none; font-size: 18px; }
+    .selected { background: lightblue; }
+    #timer, #remaining { font-weight: bold; margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <div id="start-screen">
+    <h1>Pyramid Equations</h1>
+    <button id="start-btn">Start Game</button>
+  </div>
+  <h1>Target: <span id="target"></span></h1>
+  <div id="board">
+    <div class="pyramid row-1" id="row1"></div>
+    <div class="pyramid row-2" id="row2"></div>
+    <div class="pyramid row-3" id="row3"></div>
+    <div class="pyramid row-4" id="row4"></div>
+  </div>
+  <div id="timer">Time: <span>0</span> s</div>
+  <div id="remaining">Remaining: 3</div>
+
+  <div id="success-message" style="display: none;">
+    <h2>Success!</h2>
+    <p>You found 3 sets in <span id="final-time"></span>s</p>
+    <button id="restart-btn">Play Again</button>
+  </div>
+  <div id="fail-message" style="display: none;">
+    <h2>Time's Up!</h2>
+    <p>You failed to find 3 sets.</p>
+    <h3>Solutions:</h3>
+    <ul id="solutions-list"></ul>
+    <button id="restart-btn-fail">Play Again</button>
+  </div>
+  <script>
+    const ROWS = [1, 2, 3, 4];
+    const REQUIRED = 3;
+    let tiles = [];
+    let target = 0;
+    let selections = [];
+    let foundCombos = new Set();
+    let successCount = 0;
+    let timer = 0;
+    let interval;
+    let solutions = [];
+
+    document.getElementById('start-btn').addEventListener('click', startGame);
+    document.getElementById('restart-btn').addEventListener('click', () => location.reload());
+    document.getElementById('restart-btn-fail').addEventListener('click', () => location.reload());
+
+    function startGame() {
+      document.getElementById('start-screen').style.display = 'none';
+      init();
+    }
+
+    function init() {
+      generateTiles();
+      pickTarget();
+      computeSolutions();
+      document.getElementById('target').textContent = target;
+      renderBoard();
+      updateRemaining();
+      startTimer();
+    }
+
+    function generateTiles() {
+      tiles = [];
+      ROWS.forEach(r => {
+        for (let i = 0; i < r; i++) {
+          const ops = ['+', '-', '×', '÷'];
+          const op = ops[Math.floor(Math.random() * ops.length)];
+          const val = Math.floor(Math.random() * 9) + 1;
+          tiles.push({ op, val, row: r, index: i });
+        }
+      });
+    }
+
+    function pickTarget() {
+      do {
+        const idxs = [];
+        while (idxs.length < 3) {
+          const rand = Math.floor(Math.random() * tiles.length);
+          if (!idxs.includes(rand)) idxs.push(rand);
+        }
+        const combo = idxs.map(i => tiles[i]);
+        target = computeResult(combo);
+      } while (!Number.isInteger(target) || target <= 0);
+    }
+
+    function computeSolutions() {
+      solutions = [];
+      const n = tiles.length;
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          for (let k = j + 1; k < n; k++) {
+            const combo = [tiles[i], tiles[j], tiles[k]];
+            if (computeResult(combo) === target) {
+              solutions.push([i, j, k]);
+            }
+          }
+        }
+      }
+    }
+
+    function renderBoard() {
+      ROWS.forEach(r => {
+        const rowDiv = document.getElementById('row' + r);
+        rowDiv.innerHTML = '';
+        tiles.filter(t => t.row === r).forEach(t => {
+          const div = document.createElement('div');
+          div.className = 'tile';
+          div.textContent = `${t.op}${t.val}`;
+          div.dataset.key = `${t.row}-${t.index}`;
+          div.onclick = onTileClick;
+          rowDiv.appendChild(div);
+        });
+      });
+    }
+
+    function onTileClick(e) {
+      const div = e.currentTarget;
+      const key = div.dataset.key;
+      if (selections.some(s => s.key === key)) return;
+      div.classList.add('selected');
+      selections.push({ key, obj: tiles.find(t => `${t.row}-${t.index}` === key), div });
+      if (selections.length === 3) {
+        const keys = selections.map(s => s.key).sort().join('-');
+        if (foundCombos.has(keys)) {
+          alert('You already used this combination!');
+        } else {
+          const res = computeResult(selections.map(s => s.obj));
+          if (res === target) {
+            foundCombos.add(keys);
+            successCount++;
+            updateRemaining();
+            if (successCount >= REQUIRED) {
+              endGame(true);
+            }
+          } else {
+            alert('Wrong!');
+            timer += 30;
+          }
+        }
+        selections.forEach(s => s.div.classList.remove('selected'));
+        selections = [];
+      }
+    }
+
+    function computeResult(arr) {
+      let val = Math.abs(arr[0].val);
+      const ops = arr.slice(1).map(t => ({ op: t.op, val: t.val }));
+      for (let i = 0; i < ops.length; i++) {
+        if (ops[i].op === '×' || ops[i].op === '÷') {
+          val = ops[i].op === '×' ? val * ops[i].val : val / ops[i].val;
+          ops.splice(i, 1);
+          i--;
+        }
+      }
+      ops.forEach(o => { val = o.op === '+' ? val + o.val : val - o.val; });
+      return val;
+    }
+
+    function updateRemaining() {
+      document.getElementById('remaining').textContent = `Remaining: ${REQUIRED - successCount}`;
+    }
+
+    function startTimer() {
+      interval = setInterval(() => {
+        timer++;
+        document.getElementById('timer').querySelector('span').textContent = timer;
+        if (timer >= 180) {
+          endGame(false);
+        }
+      }, 1000);
+    }
+
+    function endGame(success) {
+      clearInterval(interval);
+      if (success) {
+        document.getElementById('final-time').textContent = timer;
+        document.getElementById('success-message').style.display = 'flex';
+      } else {
+        const list = document.getElementById('solutions-list');
+        list.innerHTML = '';
+        solutions.forEach(combo => {
+          const item = document.createElement('li');
+          item.textContent = combo.map(i => `${tiles[i].op}${tiles[i].val}`).join(' ');
+          list.appendChild(item);
+        });
+        document.getElementById('fail-message').style.display = 'flex';
+      }
+    }
+  </script>
+</body>
+</html>
